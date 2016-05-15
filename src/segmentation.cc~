@@ -1,0 +1,215 @@
+#include <iostream>
+
+#include <boost/thread/thread.hpp>
+#include <pcl/common/common_headers.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/console/parse.h>
+
+#include <pcl/ModelCoefficients.h>
+#include <pcl/point_types.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/segmentation/extract_clusters.h>
+
+#include <pcl/filters/passthrough.h>
+#include <pcl/segmentation/region_growing.h>
+#include <pcl/segmentation/region_growing_rgb.h>
+
+using namespace pcl;
+using namespace std;
+
+class clSeg
+{
+private:
+
+public:
+  clSeg()
+  {
+  }
+  void planeSegmentation(pcl::PointCloud<PointXYZ>::Ptr cloud_input, PointCloud<PointXYZ>::Ptr segmented)
+  {
+    pcl::PointCloud<PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
+    PointCloud<PointXYZ>::Ptr cloud_inliers (new pcl::PointCloud<pcl::PointXYZ>);
+    ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
+    PointIndices::Ptr inliers (new pcl::PointIndices ());
+
+    SACSegmentation<PointXYZ> seg;
+    seg.setOptimizeCoefficients (true);
+    seg.setModelType (SACMODEL_PLANE);
+    seg.setMethodType (SAC_RANSAC);
+    seg.setMaxIterations (1000);
+    seg.setDistanceThreshold (0.01);
+
+    *cloud_filtered = *cloud_input;
+
+    int i = 0, nr_points = cloud_filtered->points.size();
+    while(cloud_filtered->points.size() > 0.3*nr_points)
+      {
+	// Segment the largest planar component from the cloud
+	seg.setInputCloud (cloud_filtered);
+	seg.segment (*inliers, *coefficients);
+	if (inliers->indices.size () == 0)
+	  {
+	    std::cerr << "Could not estimate a planar model for the given dataset." << std::endl;
+	  }
+
+	ExtractIndices<PointXYZ> extract(true);
+	// Extract the inliers
+	extract.setInputCloud(cloud_filtered);
+	extract.setIndices(inliers);
+	extract.setNegative (false);
+	extract.filter (*cloud_inliers);
+
+	extract.setNegative(true);
+	extract.filter(*cloud_filtered);
+	i++;
+      }
+    *segmented = *cloud_filtered;
+  }
+
+  void regionGrowingSegmentation(PointCloud<PointXYZ>::Ptr cloud_input, std::vector<pcl::PointIndices>& indices)
+  {
+    pcl::search::Search<pcl::PointXYZ>::Ptr tree = boost::shared_ptr<pcl::search::Search<pcl::PointXYZ> > (new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
+    normal_estimator.setSearchMethod (tree);
+    normal_estimator.setInputCloud (cloud_input);
+    normal_estimator.setKSearch (50);
+    normal_estimator.compute (*normals);
+
+    pcl::IndicesPtr pass_indices (new std::vector <int>);
+    pcl::PassThrough<pcl::PointXYZ> pass;
+    pass.setInputCloud (cloud_input);
+    pass.setFilterFieldName ("z");
+    pass.setFilterLimits (0.0, 1.0);
+    pass.filter (*pass_indices);
+
+    pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
+    reg.setMinClusterSize (50);
+    reg.setMaxClusterSize (1000000);
+    reg.setSearchMethod (tree);
+    reg.setNumberOfNeighbours (30);
+    reg.setInputCloud (cloud_input);
+    reg.setIndices (pass_indices);
+    reg.setInputNormals (normals);
+    reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
+    reg.setCurvatureThreshold (1.0);
+
+    std::vector <pcl::PointIndices> cluster_indices;
+    reg.extract (cluster_indices);
+
+    indices.resize(cluster_indices.size());
+    indices = cluster_indices;
+  }
+
+  void clusterExtraction(PointCloud<PointXYZ>::Ptr cloud_input, std::vector<pcl::PointIndices>& indices)
+  {
+    PointCloud<PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+    std::vector<pcl::PointIndices> cluster_indices;
+    tree->setInputCloud (cloud_input);
+
+    pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+    ec.setClusterTolerance (0.02); // 2cm
+    ec.setMinClusterSize (100);
+    ec.setMaxClusterSize (25000);
+    ec.setSearchMethod (tree);
+    ec.setInputCloud (cloud_input);
+    ec.extract (cluster_indices);
+
+    indices.resize(cluster_indices.size());
+    indices = cluster_indices;
+  }
+
+  void colorRegionGrowingSegmentation(PointCloud<PointXYZRGB>::Ptr cloud_input, std::vector<pcl::PointIndices>& indices)
+  {
+    pcl::IndicesPtr pass_indices (new std::vector <int>);
+    pcl::search::Search <pcl::PointXYZRGB>::Ptr tree = boost::shared_ptr<pcl::search::Search<pcl::PointXYZRGB> > (new pcl::search::KdTree<pcl::PointXYZRGB>);
+    pcl::PassThrough<pcl::PointXYZRGB> pass;
+    pass.setInputCloud (cloud_input);
+    pass.setFilterFieldName ("z");
+    pass.setFilterLimits (0.0, 1.0);
+    pass.filter (*pass_indices);
+
+    pcl::RegionGrowingRGB<pcl::PointXYZRGB> reg;
+    reg.setInputCloud (cloud_input);
+    reg.setIndices (pass_indices);
+    reg.setSearchMethod (tree);
+    reg.setDistanceThreshold (10);
+    reg.setPointColorThreshold (6);
+    reg.setRegionColorThreshold (5);
+    reg.setMinClusterSize (600);
+
+    std::vector <pcl::PointIndices> cluster_indices;
+    reg.extract (cluster_indices);
+
+    indices.resize(cluster_indices.size());
+    indices = cluster_indices;
+  }
+  void downsampleCloud(pcl::PCLPointCloud2::Ptr cloud)
+  {
+    pcl::VoxelGrid<pcl::PCLPointCloud2> vox;
+    vox.setInputCloud (cloud);
+    vox.setLeafSize (0.01f, 0.01f, 0.01f);
+    vox.filter (*cloud);
+  }
+};
+
+int main (int argc, char** argv)
+{
+  clSeg cl;
+  PCLPointCloud2::Ptr pcd (new pcl::PCLPointCloud2);
+  PointCloud<PointXYZ>::Ptr cloud (new PointCloud<PointXYZ>), cloud_seg (new PointCloud<PointXYZ>), cloud_inliers (new PointCloud<PointXYZ>);
+  PointCloud<PointXYZRGB>::Ptr cloud_rgb (new PointCloud<PointXYZRGB>), cloud_inliers2 (new PointCloud<PointXYZRGB>);
+  std::vector<pcl::PointIndices> cluster_indices;
+
+  PCDReader reader;
+  reader.read ("../region_growing_rgb_tutorial.pcd", *pcd);
+  //cl.downsampleCloud(pcd);
+
+  fromPCLPointCloud2 (*pcd, *cloud_rgb);
+  //cl.planeSegmentation(cloud, cloud_seg);
+  //cl.clusterExtraction(cloud_seg, clusters);
+  //cl.regionGrowingSegmentation(cloud_seg, cluster_indices);
+  cl.colorRegionGrowingSegmentation(cloud_rgb, cluster_indices);
+  //cl.clusterExtraction(cloud_seg, cluster_indices);
+
+  visualization::PCLVisualizer viewer("3D Viewer");
+  viewer.setBackgroundColor (0, 0, 0);
+
+  for(int i = 0; i< cluster_indices.size(); i++)
+    {
+      PointIndices::Ptr inliers(new PointIndices);
+      inliers->indices = cluster_indices[i].indices;
+
+      pcl::ExtractIndices<pcl::PointXYZRGB> extract(true);
+      extract.setInputCloud(cloud_rgb);
+      extract.setIndices(inliers);
+      extract.setNegative (false);
+      extract.filter (*cloud_inliers2);
+
+      std::stringstream ss;
+      ss << "cloud_cluster_" << i;
+      visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGB> single_color(cloud_inliers2, (rand() % 255) +1, (rand() % 255) +1, (rand() % 255) +1);
+      viewer.addPointCloud<pcl::PointXYZRGB> (cloud_inliers2, single_color, ss.str());
+    }
+
+  //visualization
+  viewer.addPointCloud<pcl::PointXYZRGB> (cloud_rgb, "sample_cloud");
+
+  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample_cloud");
+  viewer.addCoordinateSystem (1.0);
+  viewer.initCameraParameters ();
+
+  while (!viewer.wasStopped ())
+  {
+    viewer.spinOnce (100);
+  }
+
+  return 0;
+}
