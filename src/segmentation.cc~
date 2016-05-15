@@ -95,7 +95,7 @@ public:
     reg.setSearchMethod (tree);
     reg.setNumberOfNeighbours (30);
     reg.setInputCloud (cloud_input);
-    reg.setIndices (pass_indices);
+    //reg.setIndices (pass_indices);
     reg.setInputNormals (normals);
     reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
     reg.setCurvatureThreshold (1.0);
@@ -169,15 +169,14 @@ int main (int argc, char** argv)
   std::vector<pcl::PointIndices> cluster_indices;
 
   PCDReader reader;
-  reader.read ("../region_growing_rgb_tutorial.pcd", *pcd);
-  //cl.downsampleCloud(pcd);
+  reader.read ("../clouds/table_scene_lms400.pcd", *pcd);
+  cl.downsampleCloud(pcd);
 
-  fromPCLPointCloud2 (*pcd, *cloud_rgb);
-  //cl.planeSegmentation(cloud, cloud_seg);
-  //cl.clusterExtraction(cloud_seg, clusters);
+  fromPCLPointCloud2 (*pcd, *cloud);
+  cl.planeSegmentation(cloud, cloud_seg);
+  cl.clusterExtraction(cloud_seg, cluster_indices);
   //cl.regionGrowingSegmentation(cloud_seg, cluster_indices);
-  cl.colorRegionGrowingSegmentation(cloud_rgb, cluster_indices);
-  //cl.clusterExtraction(cloud_seg, cluster_indices);
+  //cl.colorRegionGrowingSegmentation(cloud_seg, cluster_indices);
 
   visualization::PCLVisualizer viewer("3D Viewer");
   viewer.setBackgroundColor (0, 0, 0);
@@ -187,20 +186,20 @@ int main (int argc, char** argv)
       PointIndices::Ptr inliers(new PointIndices);
       inliers->indices = cluster_indices[i].indices;
 
-      pcl::ExtractIndices<pcl::PointXYZRGB> extract(true);
-      extract.setInputCloud(cloud_rgb);
+      pcl::ExtractIndices<pcl::PointXYZ> extract(true);
+      extract.setInputCloud(cloud);
       extract.setIndices(inliers);
       extract.setNegative (false);
-      extract.filter (*cloud_inliers2);
+      extract.filter (*cloud_inliers);
 
       std::stringstream ss;
       ss << "cloud_cluster_" << i;
-      visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGB> single_color(cloud_inliers2, (rand() % 255) +1, (rand() % 255) +1, (rand() % 255) +1);
-      viewer.addPointCloud<pcl::PointXYZRGB> (cloud_inliers2, single_color, ss.str());
+      visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color(cloud_inliers, (rand() % 255) +1, (rand() % 255) +1, (rand() % 255) +1);
+      viewer.addPointCloud<pcl::PointXYZ> (cloud_inliers, single_color, ss.str());
     }
 
   //visualization
-  viewer.addPointCloud<pcl::PointXYZRGB> (cloud_rgb, "sample_cloud");
+  //viewer.addPointCloud<pcl::PointXYZRGB> (cloud_rgb, "sample_cloud");
 
   viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample_cloud");
   viewer.addCoordinateSystem (1.0);

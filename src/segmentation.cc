@@ -31,14 +31,14 @@ public:
   clSeg()
   {
   }
-  void planeSegmentation(pcl::PointCloud<PointXYZ>::Ptr cloud_input, PointCloud<PointXYZ>::Ptr segmented)
+  void planeSegmentation(pcl::PointCloud<PointXYZRGB>::Ptr cloud_input, PointCloud<PointXYZRGB>::Ptr segmented)
   {
-    pcl::PointCloud<PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
-    PointCloud<PointXYZ>::Ptr cloud_inliers (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<PointXYZRGB>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZRGB>);
+    PointCloud<PointXYZRGB>::Ptr cloud_inliers (new pcl::PointCloud<pcl::PointXYZRGB>);
     ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
     PointIndices::Ptr inliers (new pcl::PointIndices ());
 
-    SACSegmentation<PointXYZ> seg;
+    SACSegmentation<PointXYZRGB> seg;
     seg.setOptimizeCoefficients (true);
     seg.setModelType (SACMODEL_PLANE);
     seg.setMethodType (SAC_RANSAC);
@@ -58,7 +58,7 @@ public:
 	    std::cerr << "Could not estimate a planar model for the given dataset." << std::endl;
 	  }
 
-	ExtractIndices<PointXYZ> extract(true);
+	ExtractIndices<PointXYZRGB> extract(true);
 	// Extract the inliers
 	extract.setInputCloud(cloud_filtered);
 	extract.setIndices(inliers);
@@ -128,12 +128,12 @@ public:
 
   void colorRegionGrowingSegmentation(PointCloud<PointXYZRGB>::Ptr cloud_input, std::vector<pcl::PointIndices>& indices)
   {
-    pcl::IndicesPtr pass_indices (new std::vector <int>);
     pcl::search::Search <pcl::PointXYZRGB>::Ptr tree = boost::shared_ptr<pcl::search::Search<pcl::PointXYZRGB> > (new pcl::search::KdTree<pcl::PointXYZRGB>);
+    pcl::IndicesPtr pass_indices (new std::vector <int>);
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud (cloud_input);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (0.0, 1.0);
+    pass.setFilterLimits (0.0, 10.0);
     pass.filter (*pass_indices);
 
     pcl::RegionGrowingRGB<pcl::PointXYZRGB> reg;
@@ -150,12 +150,13 @@ public:
 
     indices.resize(cluster_indices.size());
     indices = cluster_indices;
+    cout << indices.size() << endl;
   }
   void downsampleCloud(pcl::PCLPointCloud2::Ptr cloud)
   {
     pcl::VoxelGrid<pcl::PCLPointCloud2> vox;
     vox.setInputCloud (cloud);
-    vox.setLeafSize (0.01f, 0.01f, 0.01f);
+    vox.setLeafSize (0.000001f, 0.00001f, 0.000001f);
     vox.filter (*cloud);
   }
 };
@@ -164,16 +165,16 @@ int main (int argc, char** argv)
 {
   clSeg cl;
   PCLPointCloud2::Ptr pcd (new pcl::PCLPointCloud2);
-  PointCloud<PointXYZ>::Ptr cloud (new PointCloud<PointXYZ>), cloud_seg (new PointCloud<PointXYZ>), cloud_inliers (new PointCloud<PointXYZ>);
-  PointCloud<PointXYZRGB>::Ptr cloud_rgb (new PointCloud<PointXYZRGB>), cloud_inliers2 (new PointCloud<PointXYZRGB>);
+  PointCloud<PointXYZ>::Ptr cloud (new PointCloud<PointXYZ>), cloud_inliers (new PointCloud<PointXYZ>);
+  PointCloud<PointXYZRGB>::Ptr cloud_rgb (new PointCloud<PointXYZRGB>), cloud_inliers2 (new PointCloud<PointXYZRGB>), cloud_seg (new PointCloud<PointXYZRGB>);
   std::vector<pcl::PointIndices> cluster_indices;
 
   PCDReader reader;
-  reader.read ("../clouds/region_growing_rgb_tutorial.pcd", *pcd);
+  reader.read ("region_growing_rgb_tutorial.pcd", *pcd);
   //cl.downsampleCloud(pcd);
 
   fromPCLPointCloud2 (*pcd, *cloud_rgb);
-  //cl.planeSegmentation(cloud, cloud_seg);
+  //cl.planeSegmentation(cloud_rgb, cloud_seg);
   //cl.clusterExtraction(cloud_seg, clusters);
   //cl.regionGrowingSegmentation(cloud_seg, cluster_indices);
   cl.colorRegionGrowingSegmentation(cloud_rgb, cluster_indices);
@@ -200,7 +201,7 @@ int main (int argc, char** argv)
     }
 
   //visualization
-  viewer.addPointCloud<pcl::PointXYZRGB> (cloud_rgb, "sample_cloud");
+  //viewer.addPointCloud<pcl::PointXYZRGB> (cloud_rgb, "sample_cloud");
 
   viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample_cloud");
   viewer.addCoordinateSystem (1.0);
